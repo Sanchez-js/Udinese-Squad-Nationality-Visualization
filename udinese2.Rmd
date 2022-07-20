@@ -1,0 +1,138 @@
+---
+title: "Udinese Player Nationality Visualization for First Team"
+author: "Jose Sanchez"
+date: "7/20/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+rm(list = ls())
+
+```
+
+```{r}
+#The goal of this code is to extract player nationality from website table and visualize on world map.
+library(rvest)
+
+#Target website url goes here.
+udinese_main <- read_html("https://sofifa.com/team/55/udinese/?hl=en-US")
+#target website should have html table with player information in order to extract information.
+#Locate html table using inspect tool and copy xpath into quote mark.
+squad_info<-udinese_main%>%html_nodes(xpath='//*[@id="body"]/div[3]/div/div[2]/div[2]/table')%>%html_table()
+#Information is extracted as a tibble which is not ideal for my manipulation, I convert to data frame.
+squad_info_df <-as.data.frame(squad_info)
+#If you view squad_info_df, there is more player info which you can use to do other manipulations. 
+```
+
+```{r}
+#You don't really need player name if you want to only count how many people are from the same country, but I am going to use player name for other project so I created player_name variable.
+player_name <- squad_info_df$Name
+#player nationality was not explicitly written in the html table. Instead, there were flag icons. Inspecting the flag icons revealed the title of the flag icon was the nation name.
+#Extract nation name from flag.
+player_nat<- udinese_main %>%html_elements("tbody.list")%>% html_elements("img.flag")%>% html_attr("title")
+#I join player_name and player_nat together to check if nationalities correspond. Originally, player_nat was longer than player_name, this was due to the nationality of the loaned players also being included for player_nat. Truncate player_nat to match player_name length.
+name_and_nat<-data.frame(player_name,player_nat[1:23])
+#determine how many unique nations are in the squad.
+instances_of_countries<-table(name_and_nat$player_nat)
+#turn instances_of_countries into data frame in order to manipulate better. I like to create new variables to compare changes.
+country_count<-data.frame(instances_of_countries)
+#rename columns in order to be able to call later on.
+colnames(country_count) <- c("nation","count")
+```
+
+
+```{r}
+library(stringr)
+#I initially only wanted to visualize only the nations present in the squad.
+country<-unique(player_nat)
+#Adding the '$' sign helped in order deliniate the country shapes better. Without it the map was broken.
+#
+money<-rep(c("$"),each=length(21))
+#joining money and country without space
+countries2<-paste(money,country, collapse="")
+#the output produced a long string instead of a list. Use str_split to split up each word into a spot in the list
+new_coun<-str_split(countries2, " ")[[1]]
+
+#Viewing new_count shows a $ at position 1 alone which we don't want. "North Macedonia" has been broken up into "North" and "Macedonia$" and the same has occurred for "Bosnia and Herzegovina", "Senegal" is missing a $.
+#I make not of the indeces with errors and create the variable called indices.
+indices <- c(1,13,15,16)
+#Remove indices with errors.
+result <- new_coun[-indices]
+#Fix Senegal to have a $ in the end.
+result[14] <- c("Senegal$")
+```
+
+```{r}
+library(maps)       # Provides functions that let us plot the maps
+library(mapdata)    # Contains the hi-resolution points that mark out the countries.
+#Plot only countries in the Udinese squad.
+#Upon review, this way to visualize is not what I am looking for.
+map.text("world", region = result)
+
+```
+
+```{r}
+library(tidyverse)
+#Loading up a world map.
+map.world <- map_data('world')
+
+#anti_join returns all rows from x without a match in y
+#In our case, that means that all the countries not in the squad will be drawn in. This solves the problem of only having a few countries drawn and it not look good.
+anti_join(country_count, map.world, by = c('nation' = 'region'))
+#This will join the countries from the team into our world map,
+map.play <- left_join( map.world, country_count, by = c('region' = 'nation')) 
+
+#The way we joined the tables makes it so that when we fill or color the plot, only the countries of interest get filled in with the count of how many players. 
+ggplot(map.play, aes( x = long, y = lat, group = group )) +
+  geom_polygon(aes(fill = count))
+#First draft shows proof of concept.
+```
+
+```{r}
+
+library(tidyverse)
+library(sf)
+library(rvest)
+library(stringr)
+library(scales)
+
+#I could not find a better color scale so this is what I used. 
+
+ggplot(map.play, aes( x = long, y = lat, group = group )) +
+  geom_polygon(aes(fill = count)) +
+  # scale_fill_gradientn(colours = c('#173f5f','#20639b','#3caea3','#f6d55c','#ed553b')
+  #                      ,values = scales::rescale(c(1,2,3,4,5))
+  #                      ,labels = comma
+  #                      ,breaks = c(1,2,3,4,5)
+  #                      ) +
+  guides(fill = guide_legend(reverse = T)) +
+  labs(fill = 'Number of Players Per Nation'
+       ,title = 'Udinese Squad Nationality'
+       ,subtitle = '20/21 season'
+       ,x = NULL
+       ,y = NULL) +
+  theme(text = element_text(color = '#000000')
+        ,plot.title = element_text(size = 28)
+        ,plot.subtitle = element_text(size = 14)
+        ,axis.ticks = element_blank()
+        ,axis.text = element_blank()
+        ,panel.grid = element_blank()
+        # ,panel.background = element_rect(fill = '#ffffff')
+        # ,plot.background = element_rect(fill = '#ffffff')
+        ,legend.position = c(.18,.36)
+        ,legend.background = element_blank()
+        ,legend.key = element_blank()
+        ) +
+  annotate(geom = 'text'
+           ,label = 'Sofifa\nhttps://sofifa.com/team/55/udinese/?hl=en-US&col=pt&sort=desc'
+           ,x = 18, y = -55
+           ,size = 3
+           ,color = '#000000'
+           ,hjust = 'left'
+           )+
+  theme(legend.title = element_text(colour="black", face="bold"))
+#Final Version
+
+```
